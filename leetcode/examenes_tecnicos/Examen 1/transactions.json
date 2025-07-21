@@ -1,0 +1,7 @@
+[
+  {"user_id": "alice", "amount": 120.5, "currency": "EUR", "status": "SUCCESS"},
+  {"user_id": "alice", "amount": 50.0, "currency": "EUR", "status": "FAILED"},
+  {"user_id": "bob", "amount": 300.0, "currency": "EUR", "status": "SUCCESS"},
+  {"user_id": "alice", "amount": 80.0, "currency": "EUR", "status": "SUCCESS"},
+  {"user_id": "charlie", "amount": 200.0, "currency": "EUR", "status": "PENDING"}
+]
