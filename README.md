@@ -22,3 +22,10 @@ pipenv run uvicorn api:app --reload
 |                              | 404    | Not Found                       |
 | **5XX** Errores del servidor | 500    | Internal Server Error           |
 |                              | 503    | Service Temporarily Unavailable |
+
+
+
+--------------------
+
+py -m venv venv
+pip install fastapi uvicorn
