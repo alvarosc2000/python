@@ -4,6 +4,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, constr
 from typing import Optional
 from jwt_utils import createToken, validate_token
+from bd.database import Session, engine, Base
+from models.movie import Movie as ModelMovie
+from fastapi.encoders import jsonable_encoder
 
 app = FastAPI(
     title="FastAPI",
@@ -11,6 +14,9 @@ app = FastAPI(
 )
 
 headers = {"content-type": "charset=utf-8"}
+
+
+Base.metadata.create_all(bind=engine)
 
 # ------------------- MODELOS -------------------
 
@@ -75,50 +81,131 @@ movies = [
 async def read_root():
     return HTMLResponse('<h2>HOLA MUNDO</h2>')
 
-@app.get('/movies', tags=['Movies'])
+@app.get('/movies/', tags=['Movies'])
 async def get_movies():
-    return JSONResponse(content=movies, headers=headers)
+    db = Session()
+    data = db.query(ModelMovie).all()
+    return JSONResponse(content=jsonable_encoder(data))
+
+
 
 @app.get('/movies/id/{id}', tags=['Movies'])
 async def get_movie_by_id(id: int = Path(ge=1, le=100)):
-    result = next((item for item in movies if item["id"] == id), None)
-    if result:
-        return JSONResponse(content=result, headers=headers)
-    raise HTTPException(status_code=404, detail="Película no encontrada")
+    db = Session()
+    try:
+        movie = db.query(ModelMovie).filter(ModelMovie.id == id).first()
+        if movie:
+            return JSONResponse(
+                content={
+                    "id": movie.id,
+                    "title": movie.title,
+                    "overview": movie.overview,
+                    "year": movie.year,
+                    "rating": movie.rating,
+                    "category": movie.category
+                },
+                headers=headers
+            )
+        raise HTTPException(status_code=404, detail="Película no encontrada")
+    finally:
+        db.close()
+
 
 @app.get("/movies/category/{category}", tags=['Movies'])
 async def get_movies_by_category(category: str):
-    result = [item for item in movies if item["category"].lower() == category.lower()]
-    if result:
-        return JSONResponse(content=result, headers=headers)
-    raise HTTPException(status_code=404, detail="No movies found in this category")
+    db = Session()
+    try:
+        movies = db.query(ModelMovie).filter(ModelMovie.category == category).all()
+        if movies:
+            result = []
+            for movie in movies:
+                result.append({
+                    "id": movie.id,
+                    "title": movie.title,
+                    "overview": movie.overview,
+                    "year": movie.year,
+                    "rating": movie.rating,
+                    "category": movie.category
+                })
+            return JSONResponse(content=result, headers=headers)
+        raise HTTPException(status_code=404, detail="Película no encontrada")
+    finally:
+        db.close()
+
 
 @app.post("/movies/crear", tags=["Movies"])
 async def crear_movie(movie: MovieCreate):
-    if movie.id is None:
-        movie.id = max((m["id"] for m in movies), default=0) + 1
-    elif any(m["id"] == movie.id for m in movies):
-        raise HTTPException(status_code=400, detail="Ya existe una película con ese ID")
+    db = Session()
+    try:
+        # Verificar si ya existe una película con ese ID
+        if movie.id is not None:
+            existing = db.query(ModelMovie).filter(ModelMovie.id == movie.id).first()
+            if existing:
+                raise HTTPException(status_code=400, detail="Ya existe una película con ese ID")
 
-    new_movie = movie.dict()
-    movies.append(new_movie)
-    return JSONResponse(content={"message": "Película creada", "movie": new_movie}, headers=headers)
+        # Crear nueva instancia
+        new_movie = ModelMovie(**movie.dict())
+
+        db.add(new_movie)
+        db.commit()
+        db.refresh(new_movie)  # Para obtener los valores generados como el ID
+
+        return JSONResponse(
+            content={"message": "Película creada", "movie": {
+                "id": new_movie.id,
+                "title": new_movie.title,
+                "overview": new_movie.overview,
+                "year": new_movie.year,
+                "rating": new_movie.rating,
+                "category": new_movie.category
+            }},
+            headers=headers
+        )
+    finally:
+        db.close()
+
 
 @app.put("/movies/actualizar/{id}", tags=["Movies"])
 async def actualizar_movie(id: int, movie: MovieCreate):
-    for item in movies:
-        if item["id"] == id:
-            item.update(movie.dict(exclude={"id"}))
-            return JSONResponse(content={"message": "Película actualizada", "movie": item}, headers=headers)
-    raise HTTPException(status_code=404, detail="Película no encontrada")
+    db = Session()
+    data = db.query(ModelMovie).filter(ModelMovie.id == id).first()
+    if not data:
+         raise HTTPException(status_code=404, detail="Película no actualizada")
+    data.title = movie.title
+    data.overview = movie.overview
+    data.year = movie.year
+    data.rating = movie.rating
+    data.category = movie.category
+    db.commit()
+
+    return JSONResponse(content={'message': 'Se ha modificado la pelicula'})
+    
 
 @app.delete("/movies/delete/{id}", tags=["Movies"])
 async def delete_movie(id: int = Path(ge=1, le=100)):
-    for item in movies:
-        if item["id"] == id:
-            movies.remove(item)
-            return JSONResponse(content={"message": "Película eliminada", "movie": item}, headers=headers)
-    raise HTTPException(status_code=404, detail="Película no encontrada")
+    db = Session()
+    try:
+        db_movie = db.query(ModelMovie).filter(ModelMovie.id == id).first()
+        if not db_movie:
+            raise HTTPException(status_code=404, detail="Película no encontrada")
+
+        db.delete(db_movie)
+        db.commit()
+
+        return JSONResponse(
+            content={"message": "Película eliminada", "movie": {
+                "id": db_movie.id,
+                "title": db_movie.title,
+                "overview": db_movie.overview,
+                "year": db_movie.year,
+                "rating": db_movie.rating,
+                "category": db_movie.category
+            }},
+            headers=headers
+        )
+    finally:
+        db.close()
+
 
 # ------------------- RUTA PROTEGIDA -------------------
 
